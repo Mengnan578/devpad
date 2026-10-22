@@ -279,6 +279,31 @@ Logs:    devpad logs api -n 80
 Never run `devpad down` or `devpad rebuild` without asking.
 ```
 
+### On Windows
+
+Commands are run through `cmd /c` by default. Point `command` at the Windows
+interpreter, and set `shell: powershell` if the command is PowerShell:
+
+```yaml
+services:
+  api:
+    kind: proc
+    dir: .\server
+    command: .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+    shell: cmd
+    port: 8000
+    ready: { http: "http://127.0.0.1:8000/health", timeout: 90 }
+  app:
+    kind: proc
+    dir: .\mobile
+    command: npm run start
+    port: 8081
+    depends_on: [api]
+```
+
+`devpad init --detect` writes these paths for you (`.venv\Scripts\python.exe`,
+`pip.exe`). Readiness probes work the same way; `netstat -ano` replaces `lsof`.
+
 ### A caveat worth knowing
 
 Opening a window needs the agent host to be allowed to send Apple Events. Sandboxed
