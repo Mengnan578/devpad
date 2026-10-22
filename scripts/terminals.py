@@ -435,8 +435,8 @@ class CommandFileDriver(Driver):
         if sys.platform != "darwin":
             return False, "macOS only"
         if not shutil.which("open"):
-            return False, "open(1) not found"
-        return True, "uses open(1); no Automation permission required"
+            return False, "open(1, encoding='utf-8') not found"
+        return True, "uses open(1, encoding='utf-8'); no Automation permission required"
 
     def plan(self, spec: RunnerSpec, runner: Path) -> list[str]:
         return [

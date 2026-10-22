@@ -25,7 +25,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEVCTL = HERE.parent / "scripts" / "devpad.py"
-PY = sys.executable
+PY = Path(sys.executable).as_posix()
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -62,7 +62,17 @@ def run(*args, cwd=None, timeout=120, env=None):
         env=full_env,
     )
     # Colour codes are for humans; assertions must not fight them.
-    return proc.returncode, strip_ansi(proc.stdout.decode("utf-8", "replace"))
+    output = strip_ansi(proc.stdout.decode("utf-8", "replace"))
+    # On failure, surface the service logs: without them a CI failure says only
+    # "not ready", which is useless for diagnosing the actual cause.
+    if proc.returncode != 0 and cwd is not None:
+        logs = Path(cwd) / ".devpad" / "logs"
+        if logs.is_dir():
+            for log in sorted(logs.glob("*.log")):
+                tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
+                print(f"\n--- {log.name} (last {len(tail)}) ---")
+                print("\n".join(tail))
+    return proc.returncode, output
 
 
 def free_port() -> int:
@@ -100,7 +110,7 @@ class Sandbox:
     def write_server(self, rel: str = "server/app.py") -> str:
         p = self.root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(SERVER_PY)
+        p.write_text(SERVER_PY, encoding="utf-8")
         return rel
 
     def next_port(self) -> int:
@@ -111,14 +121,14 @@ class Sandbox:
     def config(self, body: str, path: str = "devpad.yaml"):
         p = self.root / path
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(textwrap.dedent(body))
+        p.write_text(textwrap.dedent(body), encoding="utf-8")
         return p
 
     def state(self, service: str) -> dict | None:
         f = self.root / ".devpad" / "run" / f"{service}.json"
         if not f.is_file():
             return None
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding="utf-8"))
 
     def cleanup(self):
         run("down", cwd=self.root, timeout=90)
@@ -152,13 +162,13 @@ def test_lifecycle():
               api:
                 kind: proc
                 dir: ./server
-                command: python3 app.py {p_api}
+                command: "{PY} app.py {p_api}"
                 port: {p_api}
                 ready: {{ tcp: {p_api}, timeout: 25 }}
               app:
                 kind: proc
                 dir: ./mobile
-                command: python3 app.py {p_app}
+                command: "{PY} app.py {p_app}"
                 port: {p_app}
                 depends_on: [api]
                 ready: {{ tcp: {p_app}, timeout: 25 }}
@@ -221,7 +231,7 @@ def test_process_group_cleanup():
                 kind: proc
                 dir: ./w
                 # `sh -c` wrapping a background-ish grandchild: the classic orphan source
-                command: sh -c 'python3 app.py {port}'
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 25 }}
             """
@@ -251,7 +261,7 @@ def test_port_guard_and_kill():
               api:
                 kind: proc
                 dir: ./s
-                command: python3 app.py {port}
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 20 }}
             """
@@ -295,7 +305,7 @@ def test_stale_state_is_self_healing():
               api:
                 kind: proc
                 dir: ./s
-                command: python3 app.py {port}
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 20 }}
             """
@@ -356,7 +366,7 @@ def test_stdlib_only_and_discovery():
               api:
                 kind: proc
                 dir: ./s
-                command: python3 app.py {port}
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 20 }}
             """,
@@ -397,7 +407,7 @@ def test_optional_and_cmd_and_rebuild_plan():
               api:
                 kind: proc
                 dir: ./s
-                command: python3 app.py {port}
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 20 }}
                 clean_globs: ["junk"]
@@ -447,7 +457,7 @@ def test_status_json():
               api:
                 kind: proc
                 dir: ./s
-                command: python3 app.py {port}
+                command: "{PY} app.py {port}"
                 port: {port}
                 ready: {{ tcp: {port}, timeout: 20 }}
             """
@@ -517,13 +527,13 @@ def test_restart_does_not_bounce_dependencies():
               db:
                 kind: proc
                 dir: ./api
-                command: python3 app.py {p_api}
+                command: "{PY} app.py {p_api}"
                 port: {p_api}
                 ready: {{ tcp: {p_api}, timeout: 25 }}
               app:
                 kind: proc
                 dir: ./app
-                command: python3 app.py {p_app}
+                command: "{PY} app.py {p_app}"
                 port: {p_app}
                 depends_on: [db]
                 ready: {{ tcp: {p_app}, timeout: 25 }}

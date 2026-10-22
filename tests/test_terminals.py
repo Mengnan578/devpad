@@ -86,9 +86,9 @@ def test_runner_file():
         check("file exists", runner.is_file())
         check("file is executable", bool(runner.stat().st_mode & 0o111))
         check("path is sanitised (no spaces or middle dots)", " " not in runner.name)
-        first = runner.read_text()
+        first = runner.read_text(encoding="utf-8")
         term.write_runner(spec_for(term, tmp), tmp / "runners")
-        check("regeneration is idempotent", runner.read_text() == first, "content changed between writes")
+        check("regeneration is idempotent", runner.read_text(encoding="utf-8") == first, "content changed between writes")
 
 
 def test_driver_contract():

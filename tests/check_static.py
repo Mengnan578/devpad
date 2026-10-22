@@ -49,7 +49,7 @@ def check(label: str, ok: bool, detail: str = ""):
 
 def undefined_calls(path: Path) -> list[tuple[str, int]]:
     """Names called but never bound anywhere in the module (a coarse pyflakes)."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     defined = set(dir(builtins))
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -117,7 +117,7 @@ def test_yaml_roundtrip():
 
     with tempfile.TemporaryDirectory() as tmp:
         cfg = Path(tmp) / "devpad.yaml"
-        cfg.write_text(text)
+        cfg.write_text(text, encoding="utf-8")
         try:
             project = devpad.Project(cfg, devpad.load_config_file(cfg))
             svc = project.services["api"]
@@ -239,7 +239,7 @@ def test_detector_never_invents():
     detect = load(SCRIPTS / "detect.py")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        (root / "README.md").write_text("an empty project\n")
+        (root / "README.md").write_text("an empty project\n", encoding="utf-8")
         result = detect.detect(root)
         check("no services invented for an empty project", not result.findings)
         check("the emptiness is explained in a note", bool(result.notes))
@@ -248,8 +248,7 @@ def test_detector_never_invents():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "package.json").write_text(
-            json.dumps({"dependencies": {"react-native": "0.76.5"}})
-        )
+            json.dumps({"dependencies": {"react-native": "0.76.5"}}), encoding="utf-8")
         result = detect.detect(root)
         kinds = ", ".join(result.project_kinds)
         check(
@@ -266,18 +265,15 @@ def test_detector_fixtures():
         root = Path(tmp)
         (root / "mobile").mkdir()
         (root / "mobile" / "package.json").write_text(
-            json.dumps({"scripts": {"start": "react-native start"}, "dependencies": {"react-native": "0.76.5"}})
-        )
-        (root / "mobile" / "pnpm-lock.yaml").write_text("")
+            json.dumps({"scripts": {"start": "react-native start"}, "dependencies": {"react-native": "0.76.5"}}), encoding="utf-8")
+        (root / "mobile" / "pnpm-lock.yaml").write_text("", encoding="utf-8")
         (root / "server").mkdir()
-        (root / "server" / "requirements.txt").write_text("fastapi\nuvicorn\n")
+        (root / "server" / "requirements.txt").write_text("fastapi\nuvicorn\n", encoding="utf-8")
         (root / "server" / "main.py").write_text(
-            "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/health')\ndef h(): return {}\n"
-        )
+            "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/health')\ndef h(): return {}\n", encoding="utf-8")
         (root / "infra").mkdir()
         (root / "infra" / "docker-compose.yml").write_text(
-            'services:\n  db:\n    image: postgres:16\n    ports:\n      - "5432:5432"\n'
-        )
+            'services:\n  db:\n    image: postgres:16\n    ports:\n      - "5432:5432"\n', encoding="utf-8")
         result = detect.detect(root)
         by_name = {f.name: f for f in result.findings}
         check("finds the compose infra", "infra" in by_name)
@@ -298,8 +294,8 @@ def test_vite_uses_dev_script():
     detect = load(SCRIPTS / "detect.py")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        (root / "package.json").write_text(json.dumps({"scripts": {"dev": "vite"}, "devDependencies": {"vite": "6"}}))
-        (root / "vite.config.ts").write_text("export default { server: { port: 4321 } }\n")
+        (root / "package.json").write_text(json.dumps({"scripts": {"dev": "vite"}, "devDependencies": {"vite": "6"}}), encoding="utf-8")
+        (root / "vite.config.ts").write_text("export default { server: { port: 4321 } }\n", encoding="utf-8")
         result = detect.detect(root)
         app = next((f for f in result.findings if f.name == "app"), None)
         check("uses the dev script", app is not None and app.data["command"].endswith(" dev"), app.data["command"] if app else "no app")

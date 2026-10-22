@@ -625,7 +625,7 @@ def _proc_state(pid: int) -> str | None:
     a readiness probe waits out its entire timeout instead of reporting the failure.
     """
     try:
-        with open(f"/proc/{pid}/stat", "r") as fh:
+        with open(f"/proc/{pid}/stat", "r", encoding='utf-8') as fh:
             rest = fh.read().rsplit(")", 1)[-1].split()
         return rest[0] if rest else None
     except (OSError, IndexError):
@@ -670,10 +670,10 @@ def _proc_created_at(pid: int) -> float | None:
         if bsd is not None:
             _, sec, usec, _ = bsd
             return float(sec) + float(usec) / 1e6 if sec else None
-        with open(f"/proc/{pid}/stat", "r") as fh:
+        with open(f"/proc/{pid}/stat", "r", encoding='utf-8') as fh:
             fields = fh.read().rsplit(")", 1)[-1].split()
         starttime = int(fields[19])
-        with open("/proc/stat", "r") as fh:
+        with open("/proc/stat", "r", encoding='utf-8') as fh:
             for line in fh:
                 if line.startswith("btime"):
                     return int(line.split()[1]) + starttime / os.sysconf("SC_CLK_TCK")
@@ -894,7 +894,7 @@ def port_free(port: int) -> bool:
 LOOPBACKS = ("127.0.0.1", "::1")
 
 
-def _tcp_open(host: str, port: int, timeout: float = 0.6) -> bool:
+def _tcp_open(host: str, port: int, timeout: float = 0.6, encoding='utf-8') -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -926,7 +926,7 @@ def probe_once(kind: str, target) -> bool:
     try:
         if kind in ("port", "tcp"):
             port = int(target)
-            return any(_tcp_open(host, port) for host in LOOPBACKS)
+            return any(_tcp_open(host, port, encoding='utf-8') for host in LOOPBACKS)
         if kind == "http":
             url = str(target)
             parsed = urlparse(url)
@@ -1169,7 +1169,7 @@ def _wait_for_pid(pid_file: Path, timeout: float) -> int | None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            text = pid_file.read_text().strip()
+            text = pid_file.read_text(encoding="utf-8").strip()
             if text.isdigit():
                 pid = int(text)
                 if pid_alive(pid):

@@ -125,7 +125,7 @@ def test_kill_tree():
         script = (
             "import subprocess,sys,time,pathlib;"
             f"p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(120)']);"
-            f"pathlib.Path(r'{marker}').write_text(str(p.pid));"
+            f"pathlib.Path(r'{marker}').write_text(str(p.pid), encoding='utf-8');"
             "time.sleep(120)"
         )
         parent = subprocess.Popen([sys.executable, "-c", script])
@@ -137,7 +137,7 @@ def test_kill_tree():
             check("grandchild started", False, "marker never written")
             sysenv.kill_tree(parent.pid, force=True)
             return
-        grandchild = int(marker.read_text().strip())
+        grandchild = int(marker.read_text(encoding="utf-8").strip())
 
         sysenv.kill_tree(parent.pid, force=True)
         parent.wait(timeout=20)
@@ -184,7 +184,7 @@ def test_run_payload():
         )
         out = proc.stdout.decode("utf-8", "replace")
         check("run reports the real exit code", proc.returncode == 3, f"exit {proc.returncode}: {out[-200:]}")
-        check("run writes its pid", pid_file.is_file() and pid_file.read_text().strip().isdigit())
+        check("run writes its pid", pid_file.is_file() and pid_file.read_text(encoding="utf-8").strip().isdigit())
         check("run writes the log", log_file.is_file() and "from-window" in log_file.read_text(errors="replace"))
         check("run prints the footer", "exited with code 3" in out, out[-200:])
 

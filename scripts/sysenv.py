@@ -184,7 +184,7 @@ def pid_alive(pid: int) -> bool:
     # POSIX: the pid exists. A zombie is not running, though, and treating it as
     # alive would make a crash look healthy and burn the whole readiness timeout.
     try:
-        with open(f"/proc/{pid}/stat", "r") as fh:
+        with open(f"/proc/{pid}/stat", "r", encoding='utf-8') as fh:
             rest = fh.read().rsplit(")", 1)[-1].split()
         if rest and rest[0] == "Z":
             return False
