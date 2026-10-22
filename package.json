@@ -1,5 +1,5 @@
 {
-  "name": "@mengnan578/devpad",
+  "name": "devpad-cli",
   "version": "0.2.0",
   "description": "Open a visible terminal per service and start your dev stack there — React Native / Metro, Python backends and docker compose, with the logs on your screen instead of an agent's buffer.",
   "keywords": [

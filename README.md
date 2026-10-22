@@ -45,8 +45,13 @@ cd ~/devtools/devpad && ./install.sh --cli
 
 ### npm
 
-Not published yet — `devpad` on npm needs 2FA on every first publish. The plugin and
-`install.sh` paths above do not, and neither needs Node at all.
+```bash
+npm i -g devpad-cli      # the package is devpad-cli
+devpad up --terminal     # the command is devpad
+```
+
+The package name carries the `-cli` suffix because npm rejects the bare `devpad` as
+too similar to an existing package; the binary is still `devpad`.
 
 ---
 

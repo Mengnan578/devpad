@@ -316,8 +316,8 @@ services:
 ## 7. 分发（npm）
 
 ```bash
-npx @mengnan578/devpad up --terminal     # 零安装试用
-npm i -g @mengnan578/devpad              # 常用则全局
+npx devpad-cli up --terminal     # 零安装试用
+npm i -g devpad-cli              # 常用则全局
 ```
 
 - **零运行时依赖**，纯 ESM，`engines: { node: ">=18" }`。
@@ -390,13 +390,13 @@ python3 poc/terminal_probe.py --close         # 阶段三：验证关闭路径
 
 **为什么是 A（Python 核心 + npm 薄壳）**：这套实现里最值钱的是经过真机验证的边界处理
 ——进程组三重身份判定、僵尸回收、端口守卫、窗口时序。重写成 JS 等于把它们重新踩一遍。
-npm 层只负责定位 `python3` 并转发退出码，因此 `npx @mengnan578/devpad` 依旧零安装。
+npm 层只负责定位 `python3` 并转发退出码，因此 `npx devpad-cli` 依旧零安装。
 
 ### 真机验收结果（全部通过）
 
 | 验收项 | 结果 |
 |---|---|
-| `npx @mengnan578/devpad up --terminal` 每个服务一个窗口 | ✅ 2 服务 2 窗口 |
+| `npx devpad-cli up --terminal` 每个服务一个窗口 | ✅ 2 服务 2 窗口 |
 | 窗口内实时日志 | ✅ `bundling... tick 1/2/3` 滚动 |
 | 进程崩溃后窗口留住 + 退出码 | ✅ 停在 `Press Enter`，`exited with code 7` |
 | 登录 shell（nvm / miniforge 生效） | ✅ |
