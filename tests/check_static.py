@@ -39,7 +39,10 @@ FAIL: list[str] = []
 
 def check(label: str, ok: bool, detail: str = ""):
     (PASS if ok else FAIL).append(label if ok else f"{label} {detail}".strip())
-    print(f"  {'\033[32mPASS\033[0m' if ok else '\033[31mFAIL\033[0m'} {label} {'' if ok else detail}")
+    # Escape sequences are named constants: a backslash inside an f-string
+    # expression is a syntax error before Python 3.12 (PEP 701), and CI runs 3.11.
+    icon = "\033[32mPASS\033[0m" if ok else "\033[31mFAIL\033[0m"
+    print(f"  {icon} {label} {'' if ok else detail}")
 
 
 def undefined_calls(path: Path) -> list[tuple[str, int]]:
