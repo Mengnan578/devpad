@@ -1,0 +1,32 @@
+name: ci
+
+# main is the production branch and ships macOS-only, so CI here verifies macOS.
+# The Windows work lives on feat/windows, where the workflow is a two-OS matrix.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python version
+        run: python --version
+
+      - name: Static checks
+        run: python tests/check_static.py
+
+      - name: Driver contract (no windows opened)
+        run: python tests/test_terminals.py
+
+      - name: End-to-end lifecycle
+        run: python tests/test_devpad.py
