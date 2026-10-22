@@ -87,7 +87,7 @@ def port_busy(port: int) -> bool:
 
 
 SERVER_PY = """\
-import http.server, json, os, sys
+import http.server, json, os, socketserver, sys
 PORT = int(sys.argv[1])
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -98,7 +98,15 @@ class H(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *a):
         print("served", self.path, flush=True)
-http.server.HTTPServer(("127.0.0.1", PORT), H).serve_forever()
+class Server(http.server.HTTPServer):
+    # HTTPServer.server_bind calls socket.getfqdn(), a reverse-DNS lookup that can
+    # block for the whole readiness timeout on hosts with slow resolvers (CI runners
+    # are the common case). Bind without it so the fixture tests devpad, not DNS.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+Server(("127.0.0.1", PORT), H).serve_forever()
 """
 
 

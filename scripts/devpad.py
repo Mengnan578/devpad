@@ -2390,7 +2390,26 @@ def normalise_exec_argv(argv: list[str]) -> list[str]:
     return head + prefix + rest
 
 
+def _harden_console_encoding():
+    """Make stdout/stderr tolerate any text we or a service prints.
+
+    On Windows the streams fall back to the ANSI code page (cp1252, cp437, ...) when
+    they are not a console handle, so printing a box-drawing character or a Chinese
+    log line raises UnicodeEncodeError and kills the command. Reconfiguring to UTF-8
+    with errors="replace" turns a crash into legible output — and service logs are
+    exactly the thing this tool must never fail to show.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            encoding = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+            if encoding != "utf8" and hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _harden_console_encoding()
     parser = build_parser()
     args = parser.parse_args(normalise_exec_argv(list(sys.argv[1:] if argv is None else argv)))
 

@@ -492,7 +492,7 @@ def _python_install_command(base: Path, manifest: Path | None, runner: str, det:
 
     if manifest and manifest.name == "requirements.txt":
         if _venv_prefix(base):
-            return [f"{prefix}pip install -r requirements.txt"]
+            return [f"{prefix}{PIP_EXE} install -r requirements.txt"]
         return [f"{SYSTEM_PYTHON} -m venv .venv", f".venv/Scripts/{PIP_EXE} install -r requirements.txt"] if IS_WINDOWS else ["python3 -m venv .venv", ".venv/bin/pip install -r requirements.txt"]
     if manifest and manifest.name == "pyproject.toml":
         if _venv_prefix(base):
