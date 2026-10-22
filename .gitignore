@@ -1,0 +1,11 @@
+# Runtime state (pids, logs, generated runners) — never commit
+.devpad/
+.devctl/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Packaging
+*.tgz
+node_modules/

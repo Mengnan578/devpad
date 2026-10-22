@@ -1,0 +1,122 @@
+# devpad.yaml — one place to declare everything you restart all day.
+#
+#   devpad up --terminal      ★ start everything, one visible window per service
+#   devpad up                 start detached, logs in .devpad/logs
+#   devpad restart api        restart just the backend
+#   devpad restart app api    restart two things
+#   devpad down               stop everything (containers removed)
+#   devpad status             what is up, on which port, since when
+#   devpad logs -f app        follow one service's output
+#   devpad logs -f            follow everything, prefixed
+#   devpad doctor             check tooling / paths / ports before blaming code
+#   devpad rebuild app        stop, clean, install, build, start
+#
+# Placeholders like <EDIT ...> must be replaced with your real values.
+# After editing, always run:  devpad doctor
+
+version: 1
+name: <EDIT myapp>          # used in window titles: "{project} · {service}"
+
+# How services get onto your screen.
+terminal:
+  driver: auto              # auto | iterm | apple-terminal | tmux | command-file | direct
+  hold: true                # keep the window open after the process exits (you want this)
+  title: "{project} · {service}"
+
+defaults:
+  stop_timeout: 10          # seconds to wait after SIGTERM before SIGKILL
+  stop_signal: SIGTERM
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure: databases / middleware / emulators, driven by docker compose
+  # ---------------------------------------------------------------------------
+  infra:
+    kind: docker
+    description: mysql + redis + optional emulator
+    dir: <EDIT ./infra>
+    compose: docker-compose.yml
+    services: [mysql, redis]
+    # Uncomment to also boot a containerised Android emulator (needs KVM on Linux;
+    # on macOS use a native AVD instead — see references/devpad-reference.md):
+    # services: [mysql, redis, android-emulator]
+    ready:
+      # the port Docker publishes on the host; gives "started but not accepting
+      # connections" a name instead of a mystery
+      tcp: 3306
+      timeout: 120
+    terminal: false         # a database container does not need its own window
+
+  # ---------------------------------------------------------------------------
+  # Backend: a local Python process (FastAPI / Django / Flask)
+  # ---------------------------------------------------------------------------
+  api:
+    kind: proc
+    description: python backend
+    dir: <EDIT ./server>
+    # Pick ONE line and delete the others:
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+    # command: python manage.py runserver 0.0.0.0:8080
+    # command: flask --app app run --debug --port 8080
+    env:
+      APP_ENV: local
+      PYTHONUNBUFFERED: "1"          # without this your logs appear in bursts
+      APP_PORT: "8080"               # usable as ${APP_PORT} inside `command`
+      # DATABASE_URL: mysql://root:root@127.0.0.1:3306/app
+    port: 8080
+    ready:
+      http: http://127.0.0.1:8080/health   # <EDIT a cheap endpoint>
+      timeout: 90
+    depends_on: [infra]
+    # Used by `devpad rebuild api`, in order. Remove what you do not need.
+    clean_globs: ["__pycache__", ".pytest_cache", ".mypy_cache", "*.egg-info"]
+    clean: ["find . -name '__pycache__' -type d -prune -exec rm -rf {} +"]
+    install: ["<EDIT python -m venv .venv>", "<EDIT .venv/bin/pip install -r requirements.txt>"]
+    build: []
+
+  # ---------------------------------------------------------------------------
+  # Frontend: React Native (Metro bundler)
+  # ---------------------------------------------------------------------------
+  app:
+    kind: proc
+    description: react-native metro
+    dir: <EDIT ./mobile>
+    command: npx react-native start --reset-cache    # or: npx expo start
+    env:
+      RCT_METRO_PORT: "8081"
+    port: 8081
+    depends_on: [api]             # drop this if Metro does not need the API at boot
+    ready:
+      # Metro has no health endpoint; an open port is the honest signal.
+      tcp: 8081
+      timeout: 120
+    clean_globs: ["node_modules/.cache", ".metro-cache", "$TMPDIR/metro-*"]
+    clean: []
+    install: ["pnpm install"]     # or: npm ci / yarn install
+    build: []
+
+  # ---------------------------------------------------------------------------
+  # Optional extras — delete freely.
+  # ---------------------------------------------------------------------------
+  # ios:
+  #   kind: proc
+  #   description: build + launch the iOS simulator app
+  #   dir: ./mobile
+  #   command: npx react-native run-ios --simulator "iPhone 15"
+  #   depends_on: [app]
+  #   ready: { timeout: 600 }     # no probe: long build, nothing to poll
+
+  # android:
+  #   kind: proc
+  #   description: build + launch on the Android emulator
+  #   dir: ./mobile
+  #   command: npx react-native run-android
+  #   depends_on: [app]
+  #   ready: { cmd: "adb shell getprop sys.boot_completed | grep -q 1", timeout: 600 }
+
+  # reset-db:
+  #   kind: cmd                 # one-shot, run by `devpad start reset-db`
+  #   dir: ./server
+  #   command: python manage.py migrate --noinput
+  #   depends_on: [infra]

@@ -1,0 +1,14 @@
+# Python bytecode must never ship
+__pycache__/
+*.pyc
+*.pyo
+
+# Contributor-facing only
+tests/
+poc/
+.github/
+
+# Local runtime state
+.devpad/
+.devctl/
+*.tgz

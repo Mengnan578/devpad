@@ -1,0 +1,33 @@
+{
+  "name": "devpad",
+  "owner": {
+    "name": "Mengnan578",
+    "url": "https://github.com/Mengnan578"
+  },
+  "metadata": {
+    "description": "Open a visible terminal per service and start your dev stack there — React Native, Python backends and docker compose — with the logs on your screen instead of an agent's buffer.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "devpad",
+      "source": "./",
+      "description": "Restart one service without touching the others, in its own terminal window, with the output captured so an agent can read it too.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Mengnan578"
+      },
+      "homepage": "https://github.com/Mengnan578/devpad",
+      "license": "MIT",
+      "keywords": [
+        "dev-server",
+        "terminal",
+        "iterm",
+        "react-native",
+        "metro",
+        "fastapi",
+        "docker-compose"
+      ]
+    }
+  ]
+}

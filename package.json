@@ -1,0 +1,59 @@
+{
+  "name": "devpad",
+  "version": "0.1.0",
+  "description": "Open a visible terminal per service and start your dev stack there — React Native / Metro, Python backends and docker compose, with the logs on your screen instead of an agent's buffer.",
+  "keywords": [
+    "dev-server",
+    "terminal",
+    "iterm",
+    "react-native",
+    "metro",
+    "fastapi",
+    "django",
+    "docker-compose",
+    "developer-tools",
+    "agent",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "devpad": "bin/devpad.mjs"
+  },
+  "files": [
+    "bin/",
+    "scripts/*.py",
+    "references/",
+    "skills/",
+    ".claude-plugin/",
+    "DESIGN.md",
+    "README.md",
+    "LICENSE",
+    "install.sh"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "scripts": {
+    "test": "python3 tests/check_static.py && python3 tests/test_devpad.py",
+    "test:static": "python3 tests/check_static.py",
+    "test:e2e": "python3 tests/test_devpad.py",
+    "probe": "python3 poc/terminal_probe.py",
+    "prepack": "find . -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mengnan578/devpad.git"
+  },
+  "homepage": "https://github.com/Mengnan578/devpad#readme",
+  "bugs": {
+    "url": "https://github.com/Mengnan578/devpad/issues"
+  },
+  "author": "Mengnan578"
+}

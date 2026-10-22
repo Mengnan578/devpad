@@ -1,0 +1,23 @@
+{
+  "name": "devpad",
+  "version": "0.1.0",
+  "description": "One command per service: open a visible terminal window, start it there, keep the log. React Native / Metro, Python backends, docker compose.",
+  "author": {
+    "name": "Mengnan578",
+    "url": "https://github.com/Mengnan578"
+  },
+  "homepage": "https://github.com/Mengnan578/devpad",
+  "repository": "https://github.com/Mengnan578/devpad",
+  "license": "MIT",
+  "keywords": [
+    "dev-server",
+    "terminal",
+    "iterm",
+    "react-native",
+    "metro",
+    "fastapi",
+    "django",
+    "docker-compose",
+    "developer-tools"
+  ]
+}
