@@ -999,6 +999,16 @@ def wait_ready(svc: Service, timeout: float | None = None, log=print) -> bool:
             announced = True
         time.sleep(0.4)
     log(f"    !! not ready after {limit:g}s ({kind}: {target})")
+    # Say what the process is actually doing. "Not ready" alone is not diagnosable,
+    # and the interesting case is a process that is alive but never listened.
+    state = read_state(svc) or {}
+    pid = state.get("pid")
+    if pid:
+        alive = pid_alive(int(pid))
+        log(f"       pid {pid} is {'alive' if alive else 'gone'}")
+        running = pid_command(int(pid))
+        if running:
+            log(f"       running: {running[:140]}")
     return False
 
 

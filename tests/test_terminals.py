@@ -22,6 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 TERMINALS = ROOT / "scripts" / "terminals.py"
+IS_WINDOWS = sys.platform == "win32"
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -84,7 +85,10 @@ def test_runner_file():
         tmp = Path(tmpdir)
         runner = term.write_runner(spec_for(term, tmp), tmp / "runners")
         check("file exists", runner.is_file())
-        check("file is executable", bool(runner.stat().st_mode & 0o111))
+        if IS_WINDOWS:
+            check("file exists with content", runner.stat().st_size > 0)
+        else:
+            check("file is executable", bool(runner.stat().st_mode & 0o111))
         check("path is sanitised (no spaces or middle dots)", " " not in runner.name)
         first = runner.read_text(encoding="utf-8")
         term.write_runner(spec_for(term, tmp), tmp / "runners")
@@ -147,6 +151,11 @@ def test_login_shell():
     print("\n== the login shell is the user's own, not a hardcoded one ==")
     term = load()
     shell = term.login_shell()
+    if IS_WINDOWS:
+        # There is no login shell on Windows; cmd.exe is the documented answer.
+        check("uses cmd.exe on Windows", shell.lower().endswith("cmd.exe"), shell)
+        check("the resolved shell exists", Path(shell).is_file(), shell)
+        return
     check("a shell path is resolved", shell.startswith("/"), shell)
     check("the resolved shell exists", Path(shell).is_file(), shell)
     original = os.environ.get("SHELL")
@@ -180,6 +189,11 @@ def test_output_capture():
         check("no teepty without a log path", "teepty.py" not in plain)
 
     # The real thing: does output reach the file while the process is still alive?
+    # teepty is a pty program; Windows capture goes through `devpad run` instead,
+    # which tests/test_windows.py covers.
+    if IS_WINDOWS:
+        check("teepty capture is POSIX-only (Windows uses `devpad run`)", True)
+        return
     tee = ROOT / "scripts" / "teepty.py"
     if not tee.is_file():
         check("teepty.py ships with the package", False)
