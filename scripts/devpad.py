@@ -35,7 +35,15 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "0.1.0"
+# Imported as a script, as a module by the tests, or from a plugin root: make the
+# sibling modules (sysenv, terminals, detect) importable in every case.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+import sysenv  # noqa: E402  (path set up above)
+
+VERSION = "0.2.0"
 
 CONFIG_NAMES = (
     "devpad.yaml", "devpad.yml", ".devpad/config.yaml", ".devpad/config.yml", "devpad.json",
@@ -351,6 +359,9 @@ class Service:
             raise ConfigError(f"service {self.name!r}: `terminal` must be true/false or a mapping")
         self.terminal_title = self.terminal_overrides.get("title")
         self.terminal_driver = self.terminal_overrides.get("driver")
+        # Windows only: which shell runs `command`. Ignored on POSIX, where the
+        # user's login shell is always correct.
+        self.shell = str(raw.get("shell", "auto")).lower()
 
     @property
     def terminal_hold(self) -> bool:
@@ -652,6 +663,8 @@ def _proc_created_at(pid: int) -> float | None:
     Called on the start path, so it swallows every error: being unable to date a
     process must never be the reason a service fails to start.
     """
+    if sysenv.IS_WINDOWS:
+        return sysenv.pid_start_time(pid)
     try:
         bsd = _proc_bsdinfo(pid)
         if bsd is not None:
@@ -670,23 +683,13 @@ def _proc_created_at(pid: int) -> float | None:
 
 
 def pid_alive(pid: int) -> bool:
-    """True only for a live, runnable process. A zombie counts as dead."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, owned by someone else: alive for our purposes
-    state = _proc_state(pid)
-    if state is not None:
-        return state != "Z"
-    bsd = _proc_bsdinfo(pid)
-    if bsd is not None:
-        status = bsd[0]
-        return status != 5  # SZOMB
-    return True
+    """True only for a live, runnable process.
+
+    A POSIX zombie counts as dead: `os.kill(pid, 0)` succeeds on one, so treating it
+    as alive would make a crashed service look healthy and burn the whole readiness
+    timeout. Windows asks the kernel directly.
+    """
+    return sysenv.pid_alive(pid)
 
 
 def reap_child(svc: "Service") -> int | None:
@@ -718,7 +721,10 @@ def reap_child(svc: "Service") -> int | None:
 
 
 def pid_pgid(pid: int) -> int | None:
-    """Process-group id of pid, via the kernel. None when unreadable."""
+    """Process-group id of pid. Windows has no POSIX process groups, so None there
+    (ownership then relies on start time and executable identity instead)."""
+    if sysenv.IS_WINDOWS:
+        return None
     try:
         return os.getpgid(int(pid))
     except (ProcessLookupError, PermissionError, OSError):
@@ -734,6 +740,8 @@ def pid_command(pid: int) -> str:
     """
     if pid <= 0:
         return ""
+    if sysenv.IS_WINDOWS:
+        return sysenv.pid_identity(pid)
     proc = _libproc()
     if proc is not None:
         try:
@@ -865,12 +873,8 @@ def run_capture(cmd: list[str], cwd: Path | None = None, timeout: float = 30) ->
 
 
 def port_pids(port: int) -> list[int]:
-    out = run_capture(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"])
-    pids = []
-    for tok in out.split():
-        if tok.isdigit() and int(tok) not in pids:
-            pids.append(int(tok))
-    return pids
+    """Pids listening on a port: lsof on POSIX, netstat -ano on Windows."""
+    return sysenv.port_pids(port)
 
 
 def port_free(port: int) -> bool:
@@ -1058,15 +1062,11 @@ def start_proc(svc: Service, log=print) -> bool:
         env.update(svc.env)
         env.setdefault("FORCE_COLOR", "1")
         try:
-            proc = subprocess.Popen(
-                ["/bin/sh", "-lc", svc.resolved_command() or ""],
-                cwd=str(svc.dir),
+            proc = sysenv.spawn(
+                sysenv.shell_argv(svc.resolved_command() or "", svc.shell),
+                cwd=svc.dir,
                 stdout=fh,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
                 env=env,
-                start_new_session=True,  # own process group => group kill works
-                close_fds=True,
             )
         except OSError as exc:
             log(f"  !! {svc.name}: failed to spawn: {exc}")
@@ -1132,7 +1132,9 @@ def start_docker(svc: Service, log=print, build: bool | None = None) -> bool:
 
 def run_cmd_service(svc: Service, log=print, timeout: float | None = None) -> bool:
     log(f"  > {svc.name}: {svc.command}")
-    rc = stream(["/bin/sh", "-lc", str(svc.command)], cwd=svc.dir, prefix=f"{svc.name}: ", log=log, env=svc.env)
+    rc = stream(
+        sysenv.shell_argv(str(svc.command), svc.shell), cwd=svc.dir, prefix=f"{svc.name}: ", log=log, env=svc.env
+    )
     if rc != 0:
         log(f"  !! {svc.name}: failed (exit {rc})")
         return False
@@ -1215,8 +1217,10 @@ def start_in_terminal(svc: Service, log=print) -> bool:
         # Record the window's output too: the human reads the window, an agent reads
         # this file. Without it, windowed mode is opaque to `devpad logs`.
         log_path=logfile,
+        service_name=svc.name,
+        project_root=svc.project.root,
     )
-    runner = term.write_runner(spec, svc.project.terminal_dir)
+    runner = term.write_runner(spec, svc.project.terminal_dir) if driver.needs_runner else Path()
     log(f"  > {svc.name}: opening window ({driver.name}) — {title}")
     handle = driver.spawn(spec, runner)
     if handle is None:
@@ -1332,7 +1336,7 @@ def stop_proc(svc: Service, log=print) -> bool:
     pid = int(pid)
 
     if svc.stop_command:
-        stream(["/bin/sh", "-lc", str(svc.stop_command)], cwd=svc.dir, prefix=f"{svc.name}: ", log=log)
+        stream(sysenv.shell_argv(str(svc.stop_command), svc.shell), cwd=svc.dir, prefix=f"{svc.name}: ", log=log)
 
     if not pid_alive(pid):
         log(f"  = {svc.name}: already exited")
@@ -1378,7 +1382,14 @@ def stop_docker(svc: Service, log=print, down: bool = True) -> bool:
 
 
 def kill_group(pid: int, sig: int):
-    """Signal the whole process group when possible, else just the process."""
+    """Terminate the whole process tree.
+
+    POSIX signals the process group; Windows uses `taskkill /T`. Either way the
+    intent is the same: a shell wrapper must not leave the real service running.
+    """
+    if sysenv.IS_WINDOWS:
+        sysenv.kill_tree(pid, force=(sig in (getattr(signal, "SIGKILL", None), signal.SIGTERM)))
+        return
     try:
         pgid = os.getpgid(pid)
     except ProcessLookupError:
@@ -1771,7 +1782,7 @@ def cmd_attach(project: Project, args) -> int:
     env.update(svc.env)
     print(f"\033[2m--- {svc.name}: {svc.command}  (cwd {rel(project, svc.dir)}) ---\033[0m")
     try:
-        proc = subprocess.Popen(["/bin/sh", "-lc", str(svc.command)], cwd=str(svc.dir), env=env)
+        proc = subprocess.Popen(sysenv.shell_argv(str(svc.command), svc.shell), cwd=str(svc.dir), env=env)
     except OSError as exc:
         print(f"devpad: spawn failed: {exc}")
         return 127
@@ -1798,6 +1809,84 @@ def cmd_attach(project: Project, args) -> int:
         rc = proc.wait()
     clear_state(svc)
     return rc
+
+
+def cmd_run(project: Project, args) -> int:
+    """Run one service in this window. Internal: used by the Windows drivers.
+
+    Windows has no AppleScript and no `start_new_session`, so the only way to know
+    which process belongs to a window, capture its output and later kill exactly its
+    tree is to make the window host *our own* process. That process writes its pid,
+    forwards the service's output to both the console and the log, and reports the
+    exit code — the same contract the POSIX shell runner provides.
+    """
+    svc = project.services.get(args.service)
+    if svc is None:
+        print(f"devpad: unknown service {args.service!r}")
+        return 2
+    if svc.kind != "proc":
+        print(f"devpad: `run` only handles kind: proc (got {svc.kind})")
+        return 2
+
+    pid_file = Path(args.pid_file) if args.pid_file else None
+    if pid_file:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
+    log_path = Path(args.log) if args.log else None
+    log_fh = None
+    if log_path:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_fh = open(log_path, "ab", buffering=0)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_fh.write(f"\n===== devpad start {stamp} =====\n".encode())
+
+    title = project.window_title(svc)
+    header = f"── {title} ──\ncwd: {svc.dir}\ncmd: {svc.resolved_command()}"
+    print(header, flush=True)
+    if log_fh:
+        log_fh.write(header.encode() + b"\n\n")
+
+    env = os.environ.copy()
+    env.update(svc.env)
+    argv = sysenv.shell_argv(svc.resolved_command() or "", svc.shell)
+
+    code = 1
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(svc.dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=None,  # inherit the console, so interactive keys still reach the service
+            env=env,
+        )
+        assert proc.stdout is not None
+        for raw in iter(proc.stdout.readline, b""):
+            text = raw.decode("utf-8", "replace")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            if log_fh:
+                log_fh.write(raw)
+        code = proc.wait()
+    except KeyboardInterrupt:
+        if proc is not None:
+            sysenv.kill_tree(proc.pid)
+            code = proc.wait()
+    finally:
+        footer = f"\n── {title} exited with code {code} ──"
+        print(footer, flush=True)
+        if log_fh:
+            log_fh.write(footer.encode() + b"\n")
+            log_fh.close()
+
+    if args.hold:
+        try:
+            input("Press Enter to close this window... ")
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return code
 
 
 def cmd_exec(project: Project, args) -> int:
@@ -1950,24 +2039,14 @@ def cmd_rebuild(project: Project, args) -> int:
 
 
 def resolve_binary(token: str, cwd: Path) -> str | None:
-    """Locate a command's executable the way a shell would, from `cwd`.
+    """Locate a command's executable the way the platform's shell would.
 
     `shutil.which` alone is wrong for a relative program such as
     `./.venv/bin/python`: it does not resolve paths against the working directory,
-    so doctor would report a healthy venv as missing.
+    so doctor would report a healthy venv as missing. On Windows PATHEXT matters
+    too (`python` -> `python.exe`).
     """
-    if not token:
-        return None
-    if "/" in token or os.sep in token:
-        candidate = Path(token)
-        if not candidate.is_absolute():
-            candidate = cwd / candidate
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-        if sys.platform == "win32" and candidate.with_suffix(".exe").is_file():
-            return str(candidate.with_suffix(".exe"))
-        return None
-    return shutil.which(token)
+    return sysenv.resolve_binary(token, cwd)
 
 
 def _doctor_drivers(warn, bad, ok):
@@ -2220,6 +2299,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("service", help="service name")
     s.add_argument("-n", "--lines", type=int, default=0)
 
+    s = sub.add_parser("run", help=argparse.SUPPRESS)  # internal: window payload
+    s.add_argument("service")
+    s.add_argument("--pid-file")
+    s.add_argument("--log")
+    s.add_argument("--hold", action="store_true")
+
     s = sub.add_parser("exec", help="run a command inside a docker service's container")
     s.add_argument("-t", "--tty", action="store_true", help="allocate a TTY (for shells)")
     s.add_argument("service")
@@ -2326,6 +2411,7 @@ def main(argv: list[str] | None = None) -> int:
         "ps": cmd_status,
         "logs": cmd_logs,
         "attach": cmd_attach,
+        "run": cmd_run,
         "exec": cmd_exec,
         "ports": cmd_ports,
         "kill": cmd_kill,

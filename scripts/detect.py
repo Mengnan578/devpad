@@ -413,13 +413,24 @@ def _imports_any(base: Path, names: list[str]) -> bool:
     return False
 
 
-VENV_PREFIX = (".venv/bin/", "../.venv/bin/", ".venv/Scripts/", "../.venv/Scripts/")
+# A virtualenv puts executables in `bin/` on POSIX and `Scripts\\` on Windows, and
+# the generated config must use the layout of the machine that runs it.
+IS_WINDOWS = sys.platform == "win32"
+VENV_PREFIX = (
+    (".venv/Scripts/", "../.venv/Scripts/", ".venv/bin/", "../.venv/bin/")
+    if IS_WINDOWS
+    else (".venv/bin/", "../.venv/bin/", ".venv/Scripts/", "../.venv/Scripts/")
+)
+PY_EXE = "python.exe" if IS_WINDOWS else "python"
+PIP_EXE = "pip.exe" if IS_WINDOWS else "pip"
+VENV_PYTHON = f".venv/Scripts/{PY_EXE}" if IS_WINDOWS else f".venv/bin/{PY_EXE}"
+SYSTEM_PYTHON = "python" if IS_WINDOWS else "python3"
 
 
 def _venv_prefix(base: Path) -> str | None:
     """Relative prefix of an existing virtualenv's bin/Scripts dir, or None."""
     for prefix in VENV_PREFIX:
-        if (base / prefix / "python").exists() or (base / prefix / "python.exe").exists():
+        if (base / prefix / PY_EXE).exists():
             return prefix
     return None
 
@@ -433,7 +444,7 @@ def _python_runner(base: Path, det: Detection) -> str:
     """
     prefix = _venv_prefix(base)
     if prefix:
-        return f"./{prefix}python" if not prefix.startswith("..") else f"{prefix}python"
+        return f"./{prefix}{PY_EXE}" if not prefix.startswith("..") else f"{prefix}{PY_EXE}"
 
     if (base / "poetry.lock").exists() or re.search(r"\[tool\.poetry\]", _read_text(base / "pyproject.toml")):
         if shutil.which("poetry"):
@@ -441,22 +452,28 @@ def _python_runner(base: Path, det: Detection) -> str:
         det.unknown(
             "pyproject.toml uses Poetry but `poetry` is not on PATH — install Poetry, or "
             "switch the project to a plain venv and set the command/install lines accordingly",
-            options=["pip install poetry && poetry install", "python3 -m venv .venv && .venv/bin/pip install -e ."],
+            options=[
+                "pip install poetry && poetry install",
+                f"{SYSTEM_PYTHON} -m venv .venv && {VENV_PYTHON} -m pip install -e .",
+            ],
             service="api",
         )
-        return "./.venv/bin/python"
+        return f"./{VENV_PYTHON}"
 
     if (base / "uv.lock").exists():
         if shutil.which("uv"):
             return "uv run python"
         det.unknown(
             "uv.lock exists but `uv` is not on PATH — install uv, or use a plain venv",
-            options=["pip install uv && uv sync", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"],
+            options=[
+                "pip install uv && uv sync",
+                f"{SYSTEM_PYTHON} -m venv .venv && {VENV_PYTHON} -m pip install -r requirements.txt",
+            ],
             service="api",
         )
-        return "./.venv/bin/python"
+        return f"./{VENV_PYTHON}"
 
-    return "./.venv/bin/python"
+    return f"./{VENV_PYTHON}"
 
 
 def _python_install_command(base: Path, manifest: Path | None, runner: str, det: Detection) -> list[str]:
@@ -469,21 +486,25 @@ def _python_install_command(base: Path, manifest: Path | None, runner: str, det:
 
     # One decision for both install and run: never install into a venv that is not
     # the one `command` uses, and never fall back to the system interpreter.
-    prefix = _venv_prefix(base) or ".venv/bin/"
+    prefix = _venv_prefix(base) or (".venv/Scripts/" if IS_WINDOWS else ".venv/bin/")
     if prefix.startswith(".."):
         prefix = prefix[3:] if prefix.startswith("../") else prefix
 
     if manifest and manifest.name == "requirements.txt":
         if _venv_prefix(base):
             return [f"{prefix}pip install -r requirements.txt"]
-        return ["python3 -m venv .venv", ".venv/bin/pip install -r requirements.txt"]
+        return [f"{SYSTEM_PYTHON} -m venv .venv", f".venv/Scripts/{PIP_EXE} install -r requirements.txt"] if IS_WINDOWS else ["python3 -m venv .venv", ".venv/bin/pip install -r requirements.txt"]
     if manifest and manifest.name == "pyproject.toml":
         if _venv_prefix(base):
-            return [f"{prefix}pip install -e ."]
+            return [f"{prefix}{PIP_EXE} install -e ."]
+        if IS_WINDOWS:
+            return [f"{SYSTEM_PYTHON} -m venv .venv", f".venv/Scripts/{PIP_EXE} install -e ."]
         return ["python3 -m venv .venv", ".venv/bin/pip install -e ."]
     if (base / "requirements.txt").exists():
         if _venv_prefix(base):
-            return [f"{prefix}pip install -r requirements.txt"]
+            return [f"{prefix}{PIP_EXE} install -r requirements.txt"]
+        if IS_WINDOWS:
+            return [f"{SYSTEM_PYTHON} -m venv .venv", f".venv/Scripts/{PIP_EXE} install -r requirements.txt"]
         return ["python3 -m venv .venv", ".venv/bin/pip install -r requirements.txt"]
     det.note(f"install step for {_rel(base.parent, base)} not determined; edit the generated `install` list")
     return []

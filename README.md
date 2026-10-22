@@ -2,7 +2,12 @@
 
 **Stop losing your dev-server logs. One command opens a terminal per service and starts your stack there.**
 
-React Native / Metro · Python backends · docker compose · macOS
+React Native / Metro · Python backends · docker compose · macOS + Windows
+
+> **Windows status (0.2.0):** the engine, port lookup, process-tree termination,
+> config, detection and the `run` payload are covered by CI on `windows-latest`.
+> **Window opening itself is not yet verified on a real Windows machine** — hosted
+> CI runners have no interactive desktop, so that claim is deliberately absent.
 
 ## Install
 
@@ -15,6 +20,17 @@ React Native / Metro · Python backends · docker compose · macOS
 
 No global command, no npm, no Python setup: the plugin carries its own engine and
 the skill runs it from `${CLAUDE_PLUGIN_ROOT}`.
+
+### Windows
+
+```powershell
+git clone https://github.com/Mengnan578/devpad.git $env:USERPROFILE\devtools\devpad
+cd $env:USERPROFILE\devtools\devpad
+powershell -ExecutionPolicy Bypass -File install.ps1 -Cli
+```
+
+Requires Windows Terminal (`wt.exe`) for windowed mode; it is the default terminal on
+Windows 11. Without it devpad falls back to a plain console window.
 
 ### Any other agent, or no agent
 
@@ -120,6 +136,8 @@ thin skill tells an agent when to call it.
 
 | Driver | Mechanism | Can close its window | Needs Automation permission |
 |---|---|---|---|
+| `windows-terminal` | `wt.exe` new tab running `devpad run` | yes (tab ends with its process tree) | no |
+| `cmd-window` | `cmd /c start` console window | yes | no |
 | `iterm` | AppleScript | yes (by session tty) | yes, prompt on first use |
 | `apple-terminal` | AppleScript `do script` | yes (by custom title) | yes, prompt on first use |
 | `tmux` | detached session + attach | yes (by session name) | no |

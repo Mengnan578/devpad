@@ -68,6 +68,16 @@ with redirected output.
 
 Exit codes: `0` success, `1` a required service failed or a decision is pending, `2` invalid config.
 
+## Platform notes
+
+macOS uses AppleScript drivers (`iterm`, `apple-terminal`) and a generated shell
+runner. Windows uses `windows-terminal` / `cmd-window`, which run the engine's own
+`run` subcommand inside the tab — so pid tracking and log capture work there too.
+
+On Windows, `devpad doctor` is the only trustworthy statement about window support:
+the logic is CI-tested, but window opening is **not verified on a real Windows
+machine**. Say so rather than assuming it works.
+
 ## Verify before promising
 
 Windows depend on the host being allowed to talk to the terminal app. Before saying

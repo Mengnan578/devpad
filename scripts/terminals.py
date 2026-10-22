@@ -32,20 +32,21 @@ import sys
 import time
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+import sysenv  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # shared runner generation
 # ---------------------------------------------------------------------------
 
 
 def login_shell() -> str:
-    """The user's login shell, so a spawned window matches their own terminal."""
-    shell = os.environ.get("SHELL") or ""
-    if shell and Path(shell).is_file():
-        return shell
-    for candidate in ("/bin/zsh", "/bin/bash", "/bin/sh"):
-        if Path(candidate).is_file():
-            return candidate
-    return "/bin/sh"
+    """The user's login shell. On Windows there is no equivalent: `cmd` is used."""
+    shell = sysenv.login_shell()
+    return shell or (os.environ.get("COMSPEC") or "cmd.exe")
 
 
 class RunnerSpec:
@@ -60,6 +61,8 @@ class RunnerSpec:
         env: dict | None = None,
         pid_file: Path | None = None,
         log_path: Path | None = None,
+        service_name: str | None = None,
+        project_root: Path | None = None,
     ):
         self.title = title
         self.cwd = cwd
@@ -70,6 +73,10 @@ class RunnerSpec:
         # When set, the window's output is also recorded here via `script(1)`, so
         # an agent can read what is on screen without screen-scraping the terminal.
         self.log_path = log_path
+        # Windows needs to re-enter the engine to run one service in a window; these
+        # two tell it which service and which project to load.
+        self.service_name = service_name
+        self.project_root = project_root
 
     def as_dict(self) -> dict:
         return {
@@ -167,6 +174,9 @@ class Driver:
 
     name = "base"
     supports_close = True
+    # POSIX drivers execute a generated shell script; Windows drivers re-enter the
+    # engine with `run`, so they do not need one.
+    needs_runner = True
 
     def available(self) -> tuple[bool, str]:
         raise NotImplementedError
@@ -562,17 +572,149 @@ class DirectDriver(Driver):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+
+
+class WindowsTerminalDriver(Driver):
+    """Open a Windows Terminal window running `devpad run <service>`.
+
+    Windows has no AppleScript, so the window is opened by handing a command line to
+    `wt.exe`. The tab's root process is our own `run` subcommand, which is what makes
+    pid tracking, log capture and tree termination work the same way they do on
+    macOS — the window is only a shell around it.
+
+    Closing: Windows Terminal exposes no per-tab close API. The tab dies with its
+    root process, and `down` kills that tree first, so nothing is left holding a
+    port. That is why close() is a no-op that reports success.
+    """
+
+    name = "windows-terminal"
+    supports_close = True
+    needs_runner = False
+
+    def _exe(self) -> str | None:
+        found = shutil.which("wt") or shutil.which("wt.exe")
+        if found:
+            return found
+        candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WindowsApps/wt.exe"
+        return str(candidate) if candidate.is_file() else None
+
+    def available(self) -> tuple[bool, str]:
+        if not sysenv.IS_WINDOWS:
+            return False, "Windows only"
+        exe = self._exe()
+        if not exe:
+            return False, "Windows Terminal (wt.exe) not found — install it from the Microsoft Store"
+        return True, f"Windows Terminal at {exe}"
+
+    def _argv(self, spec: RunnerSpec) -> list[str]:
+        root = Path(__file__).resolve().parent.parent
+        argv = [
+            self._exe() or "wt",
+            "-w", "new",
+            "new-tab",
+            "--title", spec.title,
+            "--startingDirectory", str(spec.cwd),
+            sys.executable,
+            str(root / "scripts" / "devpad.py"),
+        ]
+        # -C is a main-parser flag, so it must come before the subcommand.
+        if spec.project_root:
+            argv += ["-C", str(spec.project_root)]
+        argv += ["run", spec.service_name or ""]
+        if spec.pid_file:
+            argv += ["--pid-file", str(spec.pid_file)]
+        if spec.log_path:
+            argv += ["--log", str(spec.log_path)]
+        if spec.hold:
+            argv.append("--hold")
+        return argv
+
+    def plan(self, spec: RunnerSpec, runner: Path) -> list[str]:
+        return [
+            "open a new Windows Terminal window",
+            "run: " + " ".join(self._argv(spec)),
+            'handle: {"driver": "windows-terminal"} — the tab closes when its process tree ends',
+        ]
+
+    def spawn(self, spec: RunnerSpec, runner: Path) -> dict | None:
+        argv = self._argv(spec)
+        try:
+            proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"    !! windows-terminal: {exc}")
+            return None
+        if proc.returncode != 0:
+            out = proc.stdout.decode("utf-8", "replace").strip()
+            print(f"    !! windows-terminal: wt failed (exit {proc.returncode}) {out}")
+            return None
+        return {"driver": self.name}
+
+
+class CmdWindowDriver(Driver):
+    """Fallback when Windows Terminal is absent: `cmd /c start` opens a console.
+
+    On Windows 11 this is hosted by Windows Terminal anyway when it is the default
+    terminal; on older systems it is a plain conhost window. Kept as a fallback
+    rather than the default because it gives no control over the window title.
+    """
+
+    name = "cmd-window"
+    supports_close = True
+    needs_runner = False
+
+    def available(self) -> tuple[bool, str]:
+        if not sysenv.IS_WINDOWS:
+            return False, "Windows only"
+        return True, "uses cmd.exe start; no Windows Terminal needed"
+
+    def plan(self, spec: RunnerSpec, runner: Path) -> list[str]:
+        return ["cmd /c start "" cmd /c devpad.py run <service> --pid-file ... --log ..."]
+
+    def spawn(self, spec: RunnerSpec, runner: Path) -> dict | None:
+        root = Path(__file__).resolve().parent.parent
+        inner = [sys.executable, str(root / "scripts" / "devpad.py")]
+        if spec.project_root:
+            inner += ["-C", str(spec.project_root)]
+        inner += ["run", spec.service_name or ""]
+        if spec.pid_file:
+            inner += ["--pid-file", str(spec.pid_file)]
+        if spec.log_path:
+            inner += ["--log", str(spec.log_path)]
+        if spec.hold:
+            inner.append("--hold")
+        argv = ["cmd", "/c", "start", "", "/D", str(spec.cwd)] + inner
+        try:
+            proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"    !! cmd-window: {exc}")
+            return None
+        if proc.returncode != 0:
+            print(f"    !! cmd-window: start failed (exit {proc.returncode})")
+            return None
+        return {"driver": self.name}
+
+
 DRIVERS: dict[str, Driver] = {
     "iterm": ItermDriver(),
     "apple-terminal": AppleTerminalDriver(),
     "command-file": CommandFileDriver(),
     "tmux": TmuxDriver(),
+    "windows-terminal": WindowsTerminalDriver(),
+    "cmd-window": CmdWindowDriver(),
     "direct": DirectDriver(),
 }
 
-# Preference order for `driver: auto`. iTerm first (best handles), command-file last
-# because it cannot close its own window, direct only when explicitly asked.
-AUTO_ORDER = ["iterm", "apple-terminal", "tmux", "command-file"]
+# Preference order for `driver: auto`, per platform. macOS prefers iTerm (best
+# handles) and falls back to command-file because it cannot be closed for you;
+# Windows prefers Windows Terminal and falls back to a plain console window.
+AUTO_ORDER = (
+    ["windows-terminal", "cmd-window"]
+    if sysenv.IS_WINDOWS
+    else ["iterm", "apple-terminal", "tmux", "command-file"]
+)
 
 
 def get_driver(name: str) -> Driver | None:

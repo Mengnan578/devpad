@@ -28,9 +28,11 @@ SCRIPTS = ROOT / "scripts"
 FILES = [
     SCRIPTS / "devpad.py",
     SCRIPTS / "terminals.py",
+    SCRIPTS / "sysenv.py",
     SCRIPTS / "detect.py",
     HERE / "test_devpad.py",
     HERE / "test_terminals.py",
+    HERE / "test_windows.py",
 ]
 
 PASS: list[str] = []
