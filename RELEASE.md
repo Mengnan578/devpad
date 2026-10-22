@@ -45,7 +45,7 @@ npm pkg set bugs.url=https://github.com/<你>/devpad/issues
 **2. 验证安装**
 
 ```bash
-npx devpad@0.1.0 --version
+npx @mengnan578/devpad@0.1.0 --version
 ```
 
 **3. 打标签**（如果建了 git 仓库）
