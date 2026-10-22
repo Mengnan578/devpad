@@ -1,8 +1,9 @@
 name: ci
 
 on:
+  # Every branch: the Windows work lives on feat/windows and must be verified there,
+  # not only after it reaches main.
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
